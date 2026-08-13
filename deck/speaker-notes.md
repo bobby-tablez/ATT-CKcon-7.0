@@ -713,8 +713,9 @@ just let it sit on screen for a few seconds during applause/transition.**
 > it for you. Point it at a report — a URL, a PDF, raw text, even a screenshot — and
 > it reads it the way we just did, using whatever LLM you trust, including a fully
 > offline local model if you can't send threat intel to a cloud API, and hands back
-> regex, KQL, SPL, YARA-L, and Sigma in one pass — every rule checked before it ever
-> shows you. It's called GlobWarden. It's open source, today. QR code's right there.
+> regex, KQL, SPL, YARA-L, and Sigma in one pass — every match expression checked
+> before it ever shows you. It's called GlobWarden. It's open source, today. QR code's
+> right there.
 
 *(Advance into Slide 35 — the pull-quote beat — immediately after. No separate
 transition line needed; "QR code's right there" is the exit.)*
