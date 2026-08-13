@@ -1,0 +1,55 @@
+title: PowerShell Wildcard-Masked System Binary Path Resolution (Get-Item / $env)
+id: 1c6de37b-0d32-410e-b0f0-7bee8daa0943
+status: experimental
+description: |
+  Detects PowerShell script block content that resolves a system binary
+  path (commonly schtasks.exe, wmic.exe, or similar LOLBINs used for
+  persistence or discovery) by inserting wildcard characters into an
+  otherwise-recognizable path segment and letting the FileSystem provider
+  (via Get-Item / "gi") or $env: expansion resolve it at runtime, then
+  invoking the result via the call operator. This is the environment-
+  variable/path wildcard masking pattern cataloged under MITRE ATT&CK
+  T1027.010 (Command Obfuscation) and documented in the STEEP#MAVERICK
+  campaign (e.g. "$env:???t??r???\*2\??h???k?" resolving to
+  "$env:SYSTEMROOT\System32\schtasks.exe"). The binary name never appears
+  as a literal contiguous string, defeating naive command-line string
+  matching; Script Block Logging captures the resolved invocation because
+  the FileSystem provider performs the wildcard resolution inside the
+  PowerShell engine. Requires PowerShell Script Block Logging (Event ID
+  4104) to be enabled.
+references:
+  - https://attack.mitre.org/techniques/T1027/010/
+  - https://www.securonix.com/blog/detecting-steepmaverick-new-covert-attack-campaign-targeting-military-contractors/
+  - ../sample-4104-logs/03-envvar-wildcard-persistence.log
+author: Tim Peck (detections.ai) — CFP 2026 Attack CON talk kit
+date: 2026-08-11
+logsource:
+  category: ps_script
+  product: windows
+detection:
+  selection_masked_binary_hint:
+    ScriptBlockText|contains:
+      - 'sch\?ask'
+      - '\?ch\?ask'
+      - 'sys\?\?m32'
+      - 'sys\?m32'
+      - '$env:\?\?\?'
+  selection_dynamic_invocation:
+    ScriptBlockText|contains:
+      - '.FullName'
+      - '& $t'
+      - '& (gi'
+      - '& (Get-Item'
+      - 'iex'
+      - 'invoke-expression'
+  condition: selection_masked_binary_hint and selection_dynamic_invocation
+falsepositives:
+  - Legitimate administrative or troubleshooting scripts that use Get-Item
+    with wildcards against System32 paths for inventory purposes without
+    subsequently invoking the resolved binary (uncommon combination; the
+    dynamic-invocation selection significantly narrows this).
+level: medium
+tags:
+  - attack.defense-evasion
+  - attack.t1027.010
+  - attack.t1027

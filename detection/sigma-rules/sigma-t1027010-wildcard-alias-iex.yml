@@ -1,0 +1,55 @@
+title: PowerShell Wildcard Get-Alias/Get-Command Resolution of IEX or IRM
+id: 6d46452c-bb28-4f25-9593-30eed499542e
+status: experimental
+description: |
+  Detects PowerShell script block content that uses Get-Alias ("gal") or
+  Get-Command ("gcm") with a wildcard pattern to resolve the alias for
+  Invoke-Expression ("iex") or Invoke-RestMethod ("irm") at runtime, then
+  invokes the resolved command via the call operator. This defeats naive
+  string/pattern matching for "Invoke-Expression" or "iex" because the
+  literal substring never appears in the source text - the PowerShell
+  parser resolves it dynamically. This is the wildcard IEX invocation
+  pattern documented in the STEEP#MAVERICK campaign (Securonix Threat
+  Labs) and cited as motivating evidence for MITRE ATT&CK T1027.010
+  (Command Obfuscation). Requires PowerShell Script Block Logging
+  (Event ID 4104) to be enabled.
+references:
+  - https://attack.mitre.org/techniques/T1027/010/
+  - https://www.securonix.com/blog/detecting-steepmaverick-new-covert-attack-campaign-targeting-military-contractors/
+  - ../sample-4104-logs/01-wildcard-getalias-iex.log
+  - ../sample-4104-logs/04-getcommand-wildcard-multilayer.log
+author: Tim Peck (detections.ai) — CFP 2026 Attack CON talk kit
+date: 2026-08-11
+logsource:
+  category: ps_script
+  product: windows
+detection:
+  selection_alias_lookup:
+    ScriptBlockText|contains:
+      - 'gal \?'
+      - 'gcm \?'
+      - '(gal '
+      - '(gcm '
+      - 'Get-Alias \?'
+      - 'Get-Command \?'
+      - 'Get-Alias -Name \?'
+      - 'Get-Command -Name \?'
+  selection_exec_alias_target:
+    ScriptBlockText|contains:
+      - '\?e[\?x]'
+      - '\?e\*x'
+      - '\?ex'
+      - '\?rm'
+      - '\?r\?'
+      - 'i\*x'
+  condition: selection_alias_lookup and selection_exec_alias_target
+falsepositives:
+  - PowerShell module-development, testing, or alias-auditing scripts that
+    legitimately enumerate aliases with wildcards (e.g. help-authoring
+    tooling). Rare in normal endpoint/user activity — review the resolved
+    alias target and downstream invocation before dismissing.
+level: high
+tags:
+  - attack.defense-evasion
+  - attack.t1027.010
+  - attack.t1027

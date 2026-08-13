@@ -1,0 +1,32 @@
+================================================================================
+SYNTHETIC LAB TELEMETRY — NOT A REAL INCIDENT
+Reproduces: environment-variable/path wildcard masking used to resolve a
+            system binary (schtasks.exe) for persistence, without the binary
+            name ever appearing as a literal string, as reported in
+            STEEP#MAVERICK.
+Environment: fictional lab domain contoso-corp.test. Task name, host, user,
+and the -Enc payload target below are placeholders and do not point at a
+live host.
+Analysis:    see 03-envvar-wildcard-persistence-notes.md (raw log only below
+             — safe to display in full during a live demo before revealing
+             it)
+================================================================================
+
+Log Name:       Microsoft-Windows-PowerShell/Operational
+EventID:        4104
+TimeCreated:    2026-08-11T14:05:12.552Z
+Computer:       WKSTN17.contoso-corp.test
+Channel:        Microsoft-Windows-PowerShell/Operational
+Level:          Warning
+UserID:         CONTOSO-CORP\j.alvarez
+ProcessId:      7104
+ScriptBlockId:  3d3c24e6-3b5d-400e-a033-9604f4c1f027
+Path:
+MessageNumber:  1
+MessageTotal:   1
+ScriptBlockText:
+$t=(gi "$env:windir\Sys??m32\sch?ask?.exe").FullName;& $t /Create /SC ONLOGON /TN "WindowsUpdateHelper" /TR "powershell -nop -w hidden -enc VwByAGkAdABlAC0ASABvAHMAdAAgACcAcABsAGEAYwBlAGgAbwBsAGQAZQByAC0AdABhAHMAawAtAGEAYwB0AGkAbwBuAC0AcwB5AG4AdABoAGUAdABpAGMALQBsAGEAYgAtAG8AbgBsAHkAJwA=" /RL HIGHEST /F
+
+================================================================================
+END OF RAW LOG EXCERPT
+================================================================================

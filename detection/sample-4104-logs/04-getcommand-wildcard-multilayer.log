@@ -1,0 +1,48 @@
+================================================================================
+SYNTHETIC LAB TELEMETRY — NOT A REAL INCIDENT
+Reproduces: the Get-Command variant of the wildcard IEX pattern (T1027.010),
+            chained with a reversed-string + base64 decode stage — a
+            miniature stand-in for the eight-layer STEEP#MAVERICK obfuscation
+            chain.
+Environment: fictional lab domain contoso-corp.test. All identifiers are
+placeholders; the decoded stage-2 payload is an inert comment string only.
+Analysis:    see 04-getcommand-wildcard-multilayer-notes.md (raw log only
+             below — safe to display in full during a live demo before
+             revealing it)
+================================================================================
+
+Log Name:       Microsoft-Windows-PowerShell/Operational
+EventID:        4104
+TimeCreated:    2026-08-11T14:07:33.401Z
+Computer:       WKSTN17.contoso-corp.test
+Channel:        Microsoft-Windows-PowerShell/Operational
+Level:          Warning
+UserID:         CONTOSO-CORP\j.alvarez
+ProcessId:      8412
+ScriptBlockId:  ce6a616b-3f0c-4200-b7b8-83d9b742e9a8
+Path:
+MessageNumber:  1
+MessageTotal:   1
+ScriptBlockText:
+$e=(gcm ?e*x).Name;$b='=AAZAEGAvBAbAkHAhBAcA0CAlBgdAkGAsBQLA8GAuBAIAoDA6AAIAkHAsBgbA8GAtAgYAEGAsBAIAoDA6AAIAIFAFBARAwEAPBASAUEADBQQAwEAQBQLAIDAFBwRAEEAUBwUA0CADBQSAQFAFBASAQFAOBQWAMFAgAwI';$d=-join ($b[-1..-($b.Length)]);& $e ([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($d)))
+
+--------------------------------------------------------------------------------
+
+Log Name:       Microsoft-Windows-PowerShell/Operational
+EventID:        4104
+TimeCreated:    2026-08-11T14:07:33.447Z
+Computer:       WKSTN17.contoso-corp.test
+Channel:        Microsoft-Windows-PowerShell/Operational
+Level:          Warning
+UserID:         CONTOSO-CORP\j.alvarez
+ProcessId:      8412
+ScriptBlockId:  64d019f0-6fa2-4430-a6c6-3426e1f2c147
+Path:
+MessageNumber:  1
+MessageTotal:   1
+ScriptBlockText:
+# SYNTHETIC-STAGE2-PLACEHOLDER :: lab-only :: no-live-payload
+
+================================================================================
+END OF RAW LOG EXCERPT
+================================================================================

@@ -1,0 +1,43 @@
+title: PowerShell Reversed-String / Array-Index Decode Chain Before Execution
+id: 40d7906e-b0d4-4492-ac4f-2eb4798dbf0a
+status: experimental
+description: |
+  Detects the PowerShell array-index string-reversal idiom
+  ("$x[-1..-($x.Length)]" or the shorthand "[-1..-(...)]") used to reverse
+  an encoded payload string at runtime before base64-decoding and executing
+  it. This is a distinct obfuscation layer under MITRE ATT&CK T1027.010
+  (Command Obfuscation) — string manipulation intended to defeat static
+  base64-blob signatures, since the on-disk/on-wire string is not valid
+  base64 until reversed. Frequently stacked with a wildcard alias/command
+  dispatch layer (see sigma-t1027010-wildcard-alias-iex.yml) as part of a
+  multi-layer stager reminiscent of the eight-layer obfuscation chain
+  documented in the STEEP#MAVERICK campaign. Requires PowerShell Script
+  Block Logging (Event ID 4104) to be enabled.
+references:
+  - https://attack.mitre.org/techniques/T1027/010/
+  - https://www.securonix.com/blog/detecting-steepmaverick-new-covert-attack-campaign-targeting-military-contractors/
+  - ../sample-4104-logs/04-getcommand-wildcard-multilayer.log
+author: Tim Peck (detections.ai) — CFP 2026 Attack CON talk kit
+date: 2026-08-11
+logsource:
+  category: ps_script
+  product: windows
+detection:
+  selection_reverse_idiom:
+    ScriptBlockText|contains:
+      - '[-1..-($'
+      - '[-1..-('
+  selection_decode_and_join:
+    ScriptBlockText|contains|all:
+      - '-join'
+      - 'frombase64string'
+  condition: 1 of selection_*
+falsepositives:
+  - General-purpose PowerShell utility functions that legitimately reverse
+    strings or arrays for non-obfuscation purposes (uncommon outside of
+    CTF/training material and puzzle-style code golf).
+level: high
+tags:
+  - attack.defense-evasion
+  - attack.t1027.010
+  - attack.t1027

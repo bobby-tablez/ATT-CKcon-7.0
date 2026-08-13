@@ -1,0 +1,53 @@
+title: PowerShell Character-Masking Obfuscation - Backtick-Split IEX, String Concatenation, or Forfiles/Powershell Proxy
+id: eb09be9e-1387-4548-9a4a-691153a8dec1
+status: experimental
+description: |
+  Detects three stacked character-masking obfuscation sub-techniques cataloged
+  under MITRE ATT&CK T1027.010 (Command Obfuscation): (1) backtick-split
+  invocation of Invoke-Expression, e.g. "I`E`X", which relies on PowerShell's
+  escape character being silently stripped by the parser; (2) single-character
+  string concatenation used to build a cmdlet/keyword name (e.g.
+  'p'+'o'+'w'+'e'+'r'+'s'+'h'+'e'+'l'+'l') without the literal substring ever
+  appearing contiguously; and (3) the forfiles.exe LOLBIN used to proxy-launch
+  powershell.exe, a wrapper technique paired with case randomization in the
+  STEEP#MAVERICK campaign. Note: case randomization itself (e.g. "fOrfIlEs")
+  does not require its own rule logic here — Sigma's default field matching is
+  case-insensitive, so it is already defeated by the selections below without
+  any extra condition. Requires PowerShell Script Block Logging (Event ID
+  4104) to be enabled.
+references:
+  - https://attack.mitre.org/techniques/T1027/010/
+  - https://www.securonix.com/blog/detecting-steepmaverick-new-covert-attack-campaign-targeting-military-contractors/
+  - ../sample-4104-logs/02-character-masking-backtick-case.log
+author: Tim Peck (detections.ai) — CFP 2026 Attack CON talk kit
+date: 2026-08-11
+logsource:
+  category: ps_script
+  product: windows
+detection:
+  selection_backtick_iex:
+    ScriptBlockText|contains:
+      - 'i`e`x'
+      - 'i`ex'
+      - 'ie`x'
+      - '`i`e`x`'
+  selection_string_concat_keyword:
+    ScriptBlockText|re: '''[A-Za-z]''\s*\+\s*''[A-Za-z]''\s*\+\s*''[A-Za-z]'''
+  selection_forfiles_shell_proxy:
+    ScriptBlockText|contains|all:
+      - 'forfiles'
+      - '/m'
+      - 'powershell'
+  condition: 1 of selection_*
+falsepositives:
+  - Generated or templated PowerShell code that happens to concatenate short
+    string literals for unrelated reasons (uncommon; inspect the resulting
+    keyword the concatenation builds).
+  - Legitimate IT-authored batch/forfiles automation that intentionally
+    proxies to powershell.exe (rare — validate against a known-scripts
+    allowlist before tuning this selection out).
+level: high
+tags:
+  - attack.defense-evasion
+  - attack.t1027.010
+  - attack.t1027

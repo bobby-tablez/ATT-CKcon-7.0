@@ -1,0 +1,142 @@
+<!--
+  Sysmon configuration fragment — T1027.010 (Command Obfuscation) visibility
+  Companion to: guides/04-telemetry-detection-guide.md, Section 3
+
+  Scope (intentionally narrow — see the master brief's log-source scope):
+    Event ID 1  ProcessCreate  full CommandLine capture for PowerShell + the LOLBIN
+                set most associated with T1027.010 wrapper techniques, plus any child
+                process spawned BY those interpreters (the "PowerShell launching a
+                child process" scenario).
+    Event ID 7  ImageLoad      scoped to the same interpreter set loading a small
+                watchlist of scripting/AMSI-relevant modules, to keep volume sane.
+    Event ID 17 PipeEvent      pipes created BY a PowerShell process, with the
+                routine PSHost remoting pipe prefix excluded as documented noise.
+
+  Deploy:   Sysmon64.exe -accepteula -i sysmon-config-t1027010.xml
+  Update:   Sysmon64.exe -c sysmon-config-t1027010.xml
+  Verify:   Sysmon64.exe -c
+
+  This is a fragment tuned for one technique's telemetry, not a general-purpose
+  Sysmon baseline. In production, merge this RuleGroup set into a broader config
+  (e.g. SwiftOnSecurity's or Olaf Hartong's community baselines) rather than running
+  it standalone — a full endpoint config needs coverage well beyond T1027.010.
+-->
+<Sysmon schemaversion="4.82">
+  <HashAlgorithms>SHA256</HashAlgorithms>
+  <CheckRevocation>true</CheckRevocation>
+
+  <EventFiltering>
+
+    <!-- =====================================================================
+         EVENT ID 1 — PROCESS CREATE
+         Include-first: only the interpreter/LOLBIN set relevant to T1027.010
+         wrapper techniques, plus their children. Full CommandLine is captured
+         unconditionally by Sysmon for any process that matches an Image or
+         ParentImage rule below — there is no separate "capture command line"
+         toggle, matching an include rule is sufficient.
+         ===================================================================== -->
+
+    <RuleGroup name="T1027010-ProcessCreate-Include" groupRelation="or">
+      <ProcessCreate onmatch="include">
+
+        <!-- The interpreter/LOLBIN set most associated with T1027.010 wrapper
+             chains: PowerShell (both engines), classic cmd, and the LOLBINs
+             repeatedly seen proxying obfuscated PowerShell in STEEP#MAVERICK-
+             style and 2025-2026 campaign reporting (forfiles, mshta, wscript/
+             cscript, wmic, rundll32, regsvr32). -->
+        <Image condition="contains any">powershell.exe;pwsh.exe;cmd.exe;forfiles.exe;mshta.exe;wscript.exe;cscript.exe;wmic.exe;rundll32.exe;regsvr32.exe</Image>
+
+        <!-- Scenario: "PowerShell launching a child process" — catches anything
+             spawned BY an interpreter in the set above, regardless of what the
+             child process is (schtasks.exe persistence, a nested powershell.exe,
+             certutil.exe, another LOLBIN, etc.). This is the single highest-value
+             rule in this file for T1027.010 — the obfuscation almost always shows
+             up as an unusual parent/child pairing before it shows up as anything
+             else. -->
+        <ParentImage condition="contains any">powershell.exe;pwsh.exe;cmd.exe;forfiles.exe;mshta.exe;wscript.exe;cscript.exe</ParentImage>
+
+        <!-- Scenario: wildcard cmdlet resolution (Get-Alias/Get-Command abused
+             to invoke IEX/IWR/IRM without ever typing the cmdlet name) reaching
+             the command line directly, e.g. via -EncodedCommand decoded upstream
+             by a wrapper, or an un-encoded one-liner. Matches the call-operator +
+             wildcard-alias-lookup shape documented in T1027.010 and observed in
+             STEEP#MAVERICK ('.(gal ?e[?x])(...)', '.(gcm ?e*x)(...)'). -->
+        <CommandLine condition="contains any">.(gal ;.(gcm ;(gal ?;(gcm ?;Get-Alias -Name ?;Get-Command -Name ?;Get-Alias ?;Get-Command ?</CommandLine>
+
+        <!-- Scenario: encoded download-cradle pattern — the other half of the
+             wrapper (base64 -EncodedCommand hiding a WebClient/Invoke-RestMethod
+             cradle) even when the wildcard trick above isn't present in this
+             layer. -->
+        <CommandLine condition="contains any">-enc;-EncodedCommand;-ec ; -e JAB; -w hidden -enc</CommandLine>
+
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- Noise reduction: exclude known-benign matches that would otherwise
+         pass the broad Image/ParentImage rules above. Excludes are evaluated
+         against events that already matched an include rule; anything matching
+         here is dropped. Tune the CcmExec/EDR sensor path to your environment. -->
+
+    <RuleGroup name="T1027010-ProcessCreate-Exclude-Conhost" groupRelation="or">
+      <ProcessCreate onmatch="exclude">
+        <!-- conhost.exe as a child of cmd.exe/powershell.exe is routine console
+             host plumbing, not a new interpreter or LOLBIN invocation. -->
+        <Image condition="end with">\conhost.exe</Image>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <RuleGroup name="T1027010-ProcessCreate-Exclude-SCCM" groupRelation="and">
+      <ProcessCreate onmatch="exclude">
+        <!-- SCCM/MECM configuration-baseline and inventory scripts routinely
+             invoke unsigned, unencoded PowerShell from CcmExec.exe on managed
+             fleets. Requires BOTH conditions (groupRelation="and") so this does
+             not blanket-exclude powershell.exe launched by anything merely
+             named similarly. Replace with your management-tool binary if you
+             don't run SCCM. -->
+        <ParentImage condition="contains">\CCM\CcmExec.exe</ParentImage>
+        <Image condition="end with">\WindowsPowerShell\v1.0\powershell.exe</Image>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- =====================================================================
+         EVENT ID 7 — IMAGE LOAD
+         ImageLoad is extremely high-volume with no filter. Scoped tightly:
+         only log a module load when the LOADING process is in the interpreter
+         set AND the loaded module is on a small AMSI/scripting-engine
+         watchlist. groupRelation="and" makes both conditions mandatory.
+         ===================================================================== -->
+
+    <RuleGroup name="T1027010-ImageLoad-Include" groupRelation="and">
+      <ImageLoad onmatch="include">
+        <Image condition="contains any">powershell.exe;pwsh.exe;rundll32.exe;regsvr32.exe;mshta.exe</Image>
+        <ImageLoaded condition="contains any">amsi.dll;vbscript.dll;jscript.dll;jscript9.dll;clr.dll;clrjit.dll;System.Management.Automation.dll;System.Management.Automation.ni.dll</ImageLoaded>
+      </ImageLoad>
+    </RuleGroup>
+
+    <!-- =====================================================================
+         EVENT ID 17 — PIPE CREATED
+         Scoped to pipes created BY a PowerShell process — ties pipe visibility
+         directly back to this technique's process scope rather than attempting
+         general-purpose C2-pipe hunting (out of scope for this fragment). The
+         routine PSHost remoting pipe prefix is excluded as a documented,
+         deliberate noise/coverage tradeoff — see guides/04-telemetry-detection-
+         guide.md Section 3.3 before relying on this in production.
+         ===================================================================== -->
+
+    <RuleGroup name="T1027010-PipeEvent-Include" groupRelation="or">
+      <PipeEvent onmatch="include">
+        <Image condition="contains any">powershell.exe;pwsh.exe</Image>
+      </PipeEvent>
+    </RuleGroup>
+
+    <RuleGroup name="T1027010-PipeEvent-Exclude-PSHostRemoting" groupRelation="or">
+      <PipeEvent onmatch="exclude">
+        <!-- Standard PowerShell remoting / ISE host pipe prefix - high-volume,
+             low-signal on most fleets. Tradeoff: an attacker who deliberately
+             names a malicious pipe with this prefix would also be excluded. -->
+        <PipeName condition="begin with">\PSHost</PipeName>
+      </PipeEvent>
+    </RuleGroup>
+
+  </EventFiltering>
+</Sysmon>
