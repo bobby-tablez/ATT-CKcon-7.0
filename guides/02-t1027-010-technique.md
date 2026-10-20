@@ -349,6 +349,31 @@ Script Block Logging, Event ID 4104) rather than static command-line matching al
 real target string ever appears in a log. This is the direct bridge to Section 5 of the
 talk (The Telemetry Problem).
 
+### 5e. Format-string reconstruction — and the index-reordering trap
+
+PowerShell's format operator assembles a string from a template plus an argument list.
+As an obfuscation primitive it behaves like concatenation, with one important wrinkle
+that routinely defeats tooling.
+
+```powershell
+# Straightforward: arguments in the same order as the placeholders
+("{0}{1}" -f 'IE','X')          # -> IEX
+
+# The variant that matters: INDEX-REORDERED
+("{1}{0}" -f 'EX','I')          # -> IEX, NOT 'EXI'
+```
+
+Reading the arguments left to right spells `EXI`. Only the `{1}{0}` placeholder order
+rebuilds `IEX`. **Any analyzer that concatenates `-f` arguments in argument order and
+ignores the placeholders will reconstruct the wrong string and silently fail to match.**
+This repo's own `t1027010_hunter.py` had exactly that bug until it was found by testing
+the tool against the talk's own slides — it now parses the `{N}` order first and
+reassembles accordingly. If you are writing your own reconstruction logic, this is the
+single easiest thing to get wrong.
+
+Detection shape: a quoted template containing `{N}` placeholders, a `-f` operator, and a
+comma-separated literal list, with the result reaching a call operator.
+
 ---
 
 ## 6. The wildcard IEX invocation pattern — dedicated technical subsection
@@ -445,6 +470,41 @@ pattern. Effective detection instead has to key on the *behavioral* shape:
 This is the exact detection logic built out in `detection/` and demonstrated live in
 Section 6 of the talk, mapped explicitly to T1027.010 (and to parent T1027 for coverage
 matrix completeness).
+
+### 6d. Path-derived character harvesting
+
+A further step out from both families above. Rather than masking a literal (§5) or
+resolving a name from the alias table (§6a), this sources the characters from somewhere
+outside the script entirely — most commonly a filesystem path produced by a *wildcard*
+path resolution — and indexes specific offsets out of the resulting string.
+
+```powershell
+# Shape of the pattern (synthetic; real offsets are host-specific).
+# A wildcard Resolve-Path yields some System32 path, then three fixed character
+# offsets are plucked out of it and joined into the command name.
+.((rvpa "\???????\*2\*POO*\*river?\?6*").Path[4,15,34] -join '')
+```
+
+Why it is the hardest of the three families to reason about:
+
+- **The target never appears, in any form, anywhere in the script.** §5 techniques at
+  least embed the characters; §6a at least names the alias table. Here the characters
+  come from the filesystem.
+- **There is no enumerable source.** A path, a date string, an environment variable, the
+  contents of a file — anything with stable characters at known offsets will do. You
+  cannot write a list of sources to watch.
+- **Offsets are host-specific**, so no two samples look alike even using the same trick.
+
+What *is* stable is the shape: a multi-element integer index list applied to a string
+(frequently a `.Path`/`.FullName`/`.Name` property), joined, with the result reaching a
+call operator. That is what `t1027010_hunter.py` keys on, graded by whether the source
+is a resolved path and whether the result is actually invoked.
+
+**This is the cleanest single argument for Event ID 4104 in the whole talk.** Static
+analysis of the script text cannot recover the target here, even in principle, because
+the target is not in the text. Script Block Logging captures the resolved form at
+invocation, after the harvest has already happened — so the thing you cannot derive
+statically is simply handed to you by the engine.
 
 ---
 

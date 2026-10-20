@@ -569,22 +569,83 @@ def find_charcode_reconstruction(
 # F2]: cmdlet name assembled via PowerShell's -f format operator instead of
 # +/-join concatenation, e.g.
 #     $name = '{0}{1}{2}' -f 'Inv','oke-Expr','ession'
+# Capture the format string itself (group 1) as well as the argument list (group 2):
+# the placeholder order is the whole point of this technique and reconstructing in
+# argument order misses the reordered case entirely.
 _FORMAT_OP_RE = re.compile(
-    r"""['"][^'"]*\{\d+\}[^'"]*['"]\s*-f\s*((?:['"][^'"]*['"]\s*,\s*)*['"][^'"]*['"])""",
+    r"""(['"][^'"]*\{\d+\}[^'"]*['"])\s*-f\s*((?:['"][^'"]*['"]\s*,\s*)*['"][^'"]*['"])""",
     re.IGNORECASE,
 )
+_FMT_INDEX_RE = re.compile(r"\{(\d+)\}")
 
 
 def find_format_operator_reconstruction(line: str) -> List[Tuple[str, str, str]]:
-    """Returns list of (raw_match, reconstructed, dangerous_target)."""
+    """Returns list of (raw_match, reconstructed, dangerous_target).
+
+    Honours the {N} placeholder order. Reconstructing in plain argument order misses
+    the reordered form -- `"{1}{0}" -f 'EX','I'` rebuilds to 'IEX', not 'EXI' -- and
+    that reordering is the entire trick, so a reconstruction that ignores it is blind
+    to the most common variant in the wild.
+    """
     out = []
     for m in _FORMAT_OP_RE.finditer(line):
-        args_blob = m.group(1)
+        fmt, args_blob = m.group(1), m.group(2)
         fragments = [fm.group(2) for fm in _FRAGMENT_RE.finditer(args_blob)]
-        reconstructed = "".join(fragments)
+        order = [int(i) for i in _FMT_INDEX_RE.findall(fmt)]
+        if order and all(i < len(fragments) for i in order):
+            reconstructed = "".join(fragments[i] for i in order)
+        else:
+            reconstructed = "".join(fragments)
         target = matches_dangerous_target(reconstructed)
         if target:
             out.append((m.group(0), reconstructed, target))
+    return out
+
+
+# --------------------------------------------------------------------------
+# Path-derived character harvesting
+#
+# Instead of masking a literal or wildcard-resolving a cmdlet name, this harvests
+# individual characters out of some *other* string -- typically a filesystem path
+# produced by a wildcard Resolve-Path -- and joins them into the cmdlet name:
+#
+#   .((rvpa "\???????\*2\*POO*\*river?\?6*").Path[4,15,34] -join '')
+#
+# Nothing in the script spells the target, no alias table is queried, and the
+# character source is attacker-chosen, so neither the character-masking checks nor
+# the wildcard-resolution checks above see it. The durable tell is an explicit
+# integer index list into a string property, joined, in an invocation context.
+# --------------------------------------------------------------------------
+
+_PATH_RESOLVER_RE = re.compile(
+    r"(?i)\b(resolve-path|rvpa|get-childitem|gci|get-item|gi|dir|ls|get-location|pwd)\b"
+)
+_INDEX_JOIN_RE = re.compile(
+    r"(?i)\.\s*(path|fullname|name|basename|directoryname|directory|fullpath)\s*"
+    r"\[\s*(\d+(?:\s*,\s*\d+)+)\s*\][^\n]{0,60}?-join"
+)
+# the same harvest applied to a bare string/variable rather than a path property
+_BARE_INDEX_JOIN_RE = re.compile(r"\[\s*(\d+(?:\s*,\s*\d+){2,})\s*\][^\n]{0,60}?-join")
+_CALL_OPERATOR_RE = re.compile(r"(?:^|[^\w`])[.&]\s*\(")
+
+
+def find_path_char_harvest(line: str) -> List[Tuple[str, str, bool, bool]]:
+    """Returns list of (raw_match, index_list, from_resolved_path, invoked)."""
+    out = []
+    invoked = bool(_CALL_OPERATOR_RE.search(line)) or bool(_PIPE_OR_IEX_RE.search(line))
+    resolver = bool(_PATH_RESOLVER_RE.search(line))
+
+    seen_spans = []
+    for m in _INDEX_JOIN_RE.finditer(line):
+        seen_spans.append(m.span())
+        out.append((m.group(0), m.group(2), resolver, invoked))
+
+    # bare indexing (no path property) needs 3+ indices to be worth reporting,
+    # otherwise ordinary array slicing in benign scripts trips it
+    for m in _BARE_INDEX_JOIN_RE.finditer(line):
+        if any(s <= m.start() < e for s, e in seen_spans):
+            continue
+        out.append((m.group(0), m.group(1), resolver, invoked))
     return out
 
 
@@ -823,6 +884,30 @@ def scan_text(text: str, filename: str) -> List[Finding]:
                     f"Format-operator expression '{_truncate(raw, 100)}' assembles "
                     f"'{_truncate(reconstructed, 80)}', matching known dangerous "
                     f"target '{target}'."
+                ),
+            ))
+
+        for raw, idxs, from_path, invoked in find_path_char_harvest(m_line):
+            n = len([i for i in idxs.split(",") if i.strip()])
+            if from_path and invoked:
+                conf = "HIGH"
+            elif from_path or invoked:
+                conf = "MEDIUM"
+            else:
+                conf = "LOW"
+            src = ("a wildcard-resolved filesystem path" if from_path
+                   else "a string value")
+            findings.append(Finding(
+                file=filename, line=lineno, category="path-char-harvest",
+                label="Character harvesting: indexed characters joined into a command name",
+                snippet=snippet, confidence=conf,
+                rationale=(
+                    f"Expression '{_truncate(raw, 100)}' picks {n} characters at fixed "
+                    f"offsets [{idxs}] out of {src} and joins them"
+                    + (", and the result is invoked directly. " if invoked else ". ")
+                    + "The command name is never written anywhere in the script and no "
+                      "alias table is queried, so neither literal matching nor "
+                      "Get-Alias/Get-Command heuristics will see it."
                 ),
             ))
 

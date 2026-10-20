@@ -281,6 +281,7 @@ $ python3 t1027010_hunter.py samples/regression_new_evasions_caught.ps1 --json
 | `samples/regression_no_false_positives.ps1` | Negative control, round 2 — comment-heavy deploy script that *mentions* `-EncodedCommand`/`Invoke-Expression` in prose, plus common typo-cased cmdlets (`invoke-WebRequest`, `invoke-restmethod`). Locks in the round-1 critique's two false-positive fixes. Should produce zero findings. |
 | `samples/regression_new_evasions_caught.ps1` | Two more character-masking sub-patterns (char-code array, `-f` format operator) plus the variable-indirect wildcard fix. Locks in the round-1 critique's three false-negative fixes. Should produce exactly 3 HIGH findings. |
 | `samples/regression_herestring_no_false_positive.ps1` | Negative control, round 3 — a plausible "print a T1027.010 cheat sheet" helper script with reference prose (mentioning `-EncodedCommand`, `iex`, `$env:` reconstruction, backtick masking, case games) inside both here-string quote styles (`@"..."@` and `@'...'@`). Locks in the round-2 critique's here-string fix. Should produce zero findings. |
+| `samples/obfuscation_zoo.ps1` | The "Same IEX, Infinite Disguises" variants from the talk — concatenation, **index-reordered** `-f` format operator, char-code array, and path-derived character harvesting. Added post-talk; see "Round 4" below. |
 
 All samples are synthetic and defanged: placeholder domains
 (`contoso-corp[.]test`), defanged scheme/dots (`hxxps`, `[.]`), and every
@@ -302,12 +303,13 @@ Every `Finding` in the tool's output (text or JSON) carries both
 directly onto the Sigma rules in `../../detection/` without any manual
 re-tagging.
 
-## Fixes from independent adversarial review
+## Round 2: fixes from an independent adversarial critique
 
-This tool went through an independent adversarial review after the first
-build, which wrote its own test cases — not reused from this tool's own
-samples — and found real bugs. Fixed, with each verified by re-running the
-reviewer's exact reproduction script:
+This tool went through an independent adversarial critique after the first
+build. (That critique report is internal orchestration material and is not
+shipped here.) The critique wrote its own test cases — not reused from
+this tool's own samples or HANDOFF.md — and found real bugs. Fixed, with
+each verified by re-running the critic's exact reproduction script:
 
 - **Comments/prose triggering findings.** A well-commented, realistic WinRM
   deploy script (legitimately using `-EncodedCommand`) lit up 2 of 3 HIGH
@@ -348,20 +350,21 @@ reviewer's exact reproduction script:
 (a multi-line download-and-run chain wrapped in a helper function using
 `[scriptblock]::Create`, four lines removed from the network call, never
 touching the literal string `IEX`) is real, reproduces, and is *not*
-caught. This is the same class of gap already disclosed pre-review
-(same-line-only scope on Category 4 detectors) but this variant is
+caught. This is the same class of gap already disclosed pre-critique
+(same-line-only scope on Category 4 detectors) but the critic's variant is
 more general than the one originally documented. Fixing it properly needs
 actual data-flow/taint tracking across statements and function boundaries
 — a fundamentally different (and much larger) piece of engineering than
 the bounded few-line lookback/lookahead used for the other fixes above,
 with real risk of introducing new false positives if done hastily. Left
-as the top disclosed gap; see **What this tool will never catch** below.
+as the top disclosed gap; see **What this tool will never catch** below
+and `HANDOFF.md`.
 
-## A second independent review confirmed the fixes, plus one more
+## Round 3: independent round-2 critique confirmed the fixes, plus one more
 
-A second, fresh independent review re-derived every earlier reproduction
-from scratch — not from this tool's own `samples/regression_*.ps1` files —
-and passed the tool: all 3 HIGH
+A second, fresh independent critique
+re-derived every round-1 reproduction from scratch — not from this tool's
+own `samples/regression_*.ps1` files — and passed the tool: all 3 HIGH
 fixes above confirmed genuine, safety/performance held up under new stress
 tests, and the multi-line Category-4 gap was confirmed still honestly
 disclosed. It also found one new, real false positive, flagged as a
@@ -373,8 +376,10 @@ nice-to-have rather than a blocker:
   via a here-string (`@"..."@`) that named `-EncodedCommand`, `iex`, and
   `$env:` reconstruction for teaching purposes. Every line of that prose
   was scanned as live code, firing 2 HIGH + 1 MEDIUM and flipping the exit
-  code. A comment-blindness fix that handles `#`/`<# #>` but not here-strings
-  was an obvious next place to look, and this review found it. Fixed the same way block comments are
+  code. This was already the #1 item this file's own HANDOFF.md told the
+  next critic to try (a comment-blindness fix that handles `#`/`<# #>`
+  but not here-strings is an obvious next place to look), and the critic
+  found it exactly as predicted. Fixed the same way block comments are
   handled: here-string bodies (`@"..."@` and `@'...'@`) are now blanked
   before matching too, not shown-but-scanned. Verified against the
   critic's exact reproduction (`training_notes.ps1`): 2 HIGH + 1 MEDIUM →
@@ -385,11 +390,50 @@ nice-to-have rather than a blocker:
   isn't accidentally scoped to just the Category-3/4 keywords from the
   critic's specific example.
 
-Not fixed: two related, narrower gaps — splatting (`Get-Alias @lookupArgs`
-instead of a `$variable`) as a fourth way to defeat the wildcard-resolution
-detector, and one level of plain `$var2 = $var1` variable-to-variable
-copying in the wildcard lookback — logged as known nice-to-haves rather
-than blockers, not yet fixed.
+Not attempted in this round: the critique's two other new findings
+(splatting — `Get-Alias @lookupArgs` instead of a `$variable` — as a
+fourth way to defeat the wildcard-resolution detector, and one level of
+plain `$var2 = $var1` variable-to-variable copying in the wildcard
+lookback) were logged as narrower nice-to-haves, not blockers, and are
+tracked in `HANDOFF.md` rather than fixed here, to keep this round's
+change scoped to the one item the coordinator asked for.
+
+## Round 4: tested against the talk's own slides, post-conference
+
+After the ATT&CKcon 7.0 deck was finalised, the tool was run against the four variants
+shown on the "Same IEX, Infinite Disguises" slide. **It caught two of four.** Both
+misses are now fixed and locked in by `samples/obfuscation_zoo.ps1`.
+
+**Miss 1 — index-reordered format operator.** The `-f` check reconstructed fragments in
+*argument* order and ignored the `{N}` placeholders, so:
+
+```powershell
+("{1}{0}" -f 'EX','I')     # rebuilt as 'EXI' -> no match
+                           # actually resolves to 'IEX'
+```
+
+The reordering *is* the technique, so ignoring placeholder order missed the most common
+form of it. The check now parses the `{N}` order and reassembles accordingly. This is
+an easy bug to reproduce in your own tooling — worth checking yours.
+
+**Miss 2 — path-derived character harvesting.** A new detector (`path-char-harvest`).
+A wildcard `Resolve-Path` yields a filesystem path, then fixed character offsets are
+indexed out of the resulting string and joined into the command name:
+
+```powershell
+.((rvpa "\???????\*2\*POO*\*river?\?6*").Path[4,15,34] -join '')
+```
+
+Neither the character-masking checks nor the wildcard-resolution checks saw this,
+because the target characters come from outside the script entirely. The detector keys
+on the stable shape — a multi-element integer index list into a string (often a
+`.Path`/`.FullName`/`.Name` property), joined — and grades confidence by whether the
+source is a resolved path and whether the result is actually invoked. Bare index slices
+need 3+ indices before they are reported, so ordinary array work does not trip it.
+
+All three negative-control samples still report zero findings after both changes.
+
+See `guides/02-t1027-010-technique.md` §5e and §6d for the full write-up.
 
 ## What this tool will never catch (read this before trusting a clean scan)
 
@@ -445,6 +489,9 @@ current tool:
   the directory walker only picks up `.ps1 .psm1 .psd1 .txt .log` by
   extension; pass such a file directly instead.
 
+See `HANDOFF.md` in this directory for the full, evidence-backed writeup —
+every gap above (and a few narrower ones) with the actual reproduction
+command and output, plus specific guidance on what to stress-test hardest.
 Confidence labels throughout are a heuristic ordering (`HIGH > MEDIUM >
 LOW`), not a statistically calibrated probability — this tool has been
 validated against a couple dozen purpose-built samples, not a large

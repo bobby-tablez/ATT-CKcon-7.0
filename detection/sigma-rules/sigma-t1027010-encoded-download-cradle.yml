@@ -1,0 +1,77 @@
+title: PowerShell Encoded-Command Launch or Base64/Download-and-Execute Cradle
+id: ea3f7c80-725d-47a5-8c56-dcc985e4ac13
+status: experimental
+description: |
+  Detects two closely-related T1027.010 (Command Obfuscation) "encoding methods"
+  behaviors in PowerShell Script Block content: (1) a literal -EncodedCommand/-enc
+  launch string, most commonly seen where a script spawns a child powershell.exe
+  process carrying a Base64/UTF-16LE-encoded command block (e.g. via Start-Process
+  or Invoke-Command) so the real payload never appears as plaintext in the parent
+  process's command line; and (2) a network-download cradle - Net.WebClient,
+  Invoke-WebRequest/"iwr", or Invoke-RestMethod/"irm" - chained directly into an
+  Invoke-Expression/"iex" execution sink, fetching and running remote content
+  without touching disk. This draws on MITRE ATT&CK T1027.010's own descriptive text
+  on encoding-based obfuscation ("many languages support built-in obfuscation in the
+  form of base64 or URL encoding") and maps to Detection Strategy DET0505's analytics AN1394
+  ("base64 encoding") and AN1395 ("encoded execution"). Note: when PowerShell
+  itself is launched directly with -EncodedCommand at a top-level shell, the
+  engine decodes the blob before logging, so Script Block Logging (4104) usually
+  surfaces the *decoded* payload text as ScriptBlockText rather than the literal
+  "-EncodedCommand" flag - selection_download_cradle/selection_exec_sink below are
+  what catch that decoded content; selection_encoded_launch instead catches the
+  flag string appearing as literal text inside a script's own source (a
+  dropper/loader spawning an encoded child process, as in this kit's
+  env_and_download_cradle.ps1 sample). For the top-level "typed at a shell"
+  invocation itself, correlate with the process command line via Sysmon Event ID
+  1. Requires PowerShell Script Block Logging (Event ID 4104) to be enabled.
+references:
+  - https://attack.mitre.org/techniques/T1027/010/
+  - https://attack.mitre.org/techniques/T1027/
+  - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_powershell_exe
+  - ../../tooling/t1027010_hunter/samples/env_and_download_cradle.ps1
+author: Tim Peck (detections.ai) — CFP 2026 Attack CON talk kit
+date: 2026-08-19
+logsource:
+  category: ps_script
+  product: windows
+detection:
+  selection_encoded_launch:
+    ScriptBlockText|contains:
+      - '-enc '
+      - '-Enc '
+      - '-EncodedCommand'
+      - '-ec '
+  selection_download_cradle:
+    ScriptBlockText|contains:
+      - 'DownloadString'
+      - 'DownloadFile'
+      - 'DownloadData'
+      - 'Net.WebClient'
+      - 'Invoke-WebRequest'
+      - 'Invoke-RestMethod'
+      - ' iwr '
+      - ' irm '
+  selection_exec_sink:
+    ScriptBlockText|contains:
+      - 'iex '
+      - 'iex('
+      - '| iex'
+      - '|iex'
+      - 'Invoke-Expression'
+  condition: selection_encoded_launch or (selection_download_cradle and selection_exec_sink)
+falsepositives:
+  - Legitimate remote administration, deployment, or DSC tooling that uses
+    -EncodedCommand to avoid PowerShell's quoting/escaping limitations when
+    passing complex arguments through a remoting or scheduled-task boundary
+    (a use Microsoft's own documentation acknowledges as dual-use) - validate
+    against a known-scripts allowlist and inspect the decoded ScriptBlockText
+    content before treating a hit as malicious.
+  - Legitimate installer/bootstrap scripts that download and immediately run a
+    signed, internally-hosted setup script over HTTPS from a trusted update
+    server (uncommon outside of software-deployment tooling; the combined
+    download-verb-plus-exec-sink condition significantly narrows this).
+level: high
+tags:
+  - attack.defense-evasion
+  - attack.t1027.010
+  - attack.t1027
